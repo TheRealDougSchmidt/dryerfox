@@ -81,7 +81,7 @@ dryerfox3/
 - **Back / Forward** — works only for same-origin pages (cross-origin iframes block history access).
 - **Refresh** — reload current page.
 - **Stop** — clear the page.
-- **Home** — go to `https://example.com`.
+- **Home** — go to `https://google.com`.
 
 ## Known limitations
 

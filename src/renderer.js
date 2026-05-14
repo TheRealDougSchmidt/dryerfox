@@ -28,7 +28,7 @@ class DryerFox {
         });
 
         document.getElementById('home-button').addEventListener('click', () => {
-            this.navigateTo('https://example.com');
+            this.navigateTo('https://google.com');
         });
 
         document.getElementById('refresh-button').addEventListener('click', () => {
@@ -37,6 +37,14 @@ class DryerFox {
 
         document.getElementById('stop-button').addEventListener('click', () => {
             this.stopLoading();
+        });
+
+        document.getElementById('minimize-button').addEventListener('click', () => {
+            this.minimizeWindow();
+        });
+
+        document.getElementById('level-button').addEventListener('click', () => {
+            this.levelDrum();
         });
 
         document.getElementById('close-button').addEventListener('click', () => {
@@ -145,6 +153,20 @@ class DryerFox {
         this.isLoading = true;
         this.webContainer.classList.add('spinning', 'loading');
         this.playDryerSound();
+    }
+
+    minimizeWindow() {
+        try {
+            window.__TAURI__.window.getCurrentWindow().minimize();
+        } catch (err) {
+            console.error('Failed to minimize window:', err);
+        }
+    }
+
+    levelDrum() {
+        this.currentRotation = 0;
+        this.webContainer.style.transform = `rotate(0deg)`;
+        this.updateInteractionOverlay();
     }
 
     onPageLoadComplete() {

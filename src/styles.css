@@ -209,6 +209,56 @@ html, body {
     background: #333;
 }
 
+/* Minimize button */
+#minimize-button {
+    position: absolute;
+    top: 22px;
+    left: 640px;
+    width: 32px;
+    height: 26px;
+    padding: 0;
+    background: #555;
+    color: white;
+    border: none;
+    border-radius: 3px;
+    cursor: pointer;
+    font-size: 12px;
+    z-index: 5;
+}
+
+#minimize-button:hover {
+    background: #777;
+}
+
+#minimize-button:active {
+    background: #333;
+}
+
+/* Level button */
+#level-button {
+    position: absolute;
+    top: 78px;
+    left: 640px;
+    width: 32px;
+    height: 26px;
+    padding: 0;
+    background: #555;
+    color: white;
+    border: none;
+    border-radius: 3px;
+    cursor: pointer;
+    font-size: 12px;
+    z-index: 5;
+}
+
+#level-button:hover {
+    background: #777;
+}
+
+#level-button:active {
+    background: #333;
+}
+
 /* Loading indicator */
 .loading {
     position: relative;
