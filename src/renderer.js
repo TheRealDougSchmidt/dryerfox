@@ -100,30 +100,11 @@ class DryerFox {
             this.webContainer.style.cursor = 'default';
         });
 
-        this.webContainer.addEventListener('wheel', (e) => {
-            this.forwardWheelEvent(e);
-        }, { passive: false });
-    }
-
-    forwardWheelEvent(event) {
-        try {
-            if (this.webFrame.contentDocument && this.webFrame.contentWindow) {
-                const wheelEvent = new WheelEvent('wheel', {
-                    deltaX: event.deltaX,
-                    deltaY: event.deltaY,
-                    deltaZ: event.deltaZ,
-                    deltaMode: event.deltaMode,
-                    bubbles: true,
-                    cancelable: true,
-                    clientX: event.clientX,
-                    clientY: event.clientY
-                });
-                this.webFrame.contentDocument.dispatchEvent(wheelEvent);
-                event.preventDefault();
-            }
-        } catch {
-            // Cross-origin iframe — let the webview deliver the wheel event natively
-        }
+        // Wheel events: the webview routes them to the iframe natively once the
+        // cursor is over the iframe area. Manually dispatching them required
+        // reaching into iframe.contentDocument, which is cross-origin to the
+        // host (parent runs on http://127.0.0.1, iframe on dryerfox://) and
+        // logged a SecurityError every wheel tick.
     }
 
     navigateTo(url) {
