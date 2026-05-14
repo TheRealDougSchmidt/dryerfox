@@ -1,0 +1,22 @@
+{
+  "name": "dryerfox",
+  "version": "1.0.0",
+  "description": "A silly browser that acts like a web browser inside a clothes dryer",
+  "private": true,
+  "scripts": {
+    "tauri": "tauri",
+    "dev": "tauri dev",
+    "build": "tauri build"
+  },
+  "keywords": [
+    "tauri",
+    "browser",
+    "dryer",
+    "silly"
+  ],
+  "author": "Doug Schmidt",
+  "license": "MIT",
+  "devDependencies": {
+    "@tauri-apps/cli": "^2.1.0"
+  }
+}

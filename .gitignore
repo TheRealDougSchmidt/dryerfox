@@ -1,0 +1,10 @@
+# Node
+node_modules/
+dist/
+
+# Rust / Tauri build artifacts
+src-tauri/target/
+src-tauri/gen/
+
+# macOS
+.DS_Store

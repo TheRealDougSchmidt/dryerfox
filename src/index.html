@@ -1,0 +1,60 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>DryerFox</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body data-tauri-drag-region>
+    <div id="dryer-container" data-tauri-drag-region>
+        <!-- Close button -->
+        <button id="close-button" title="Close">✕</button>
+
+        <!-- URL bar section -->
+        <div id="url-bar">
+            <input type="url" id="url-input" placeholder="Enter URL..." value="https://google.com">
+        </div>
+
+        <!-- Dryer drum (back layer) -->
+        <div id="dryer-drum">
+            <img src="assets/dryer_drum_med.png" alt="Dryer Drum" class="dryer-asset">
+        </div>
+
+        <!-- Web content container (rotating iframe) -->
+        <div id="web-container">
+            <iframe id="web-frame" src="about:blank"></iframe>
+            <div id="rotation-indicator">Ready</div>
+        </div>
+
+        <!-- Dryer frame (front layer with hole) -->
+        <div id="dryer-frame" data-tauri-drag-region>
+            <img src="assets/dryer_frame_med.png" alt="Dryer Frame" class="dryer-asset">
+        </div>
+
+        <!-- Dryer lid with controls -->
+        <div id="dryer-lid" data-tauri-drag-region>
+            <img src="assets/dryer_lid_med.png" alt="Dryer Lid" class="dryer-asset">
+
+            <!-- Control buttons overlay -->
+            <div id="controls">
+                <div class="control-section">
+                    <button id="refresh-button" title="Refresh">⟳</button>
+                    <button id="stop-button" title="Stop">⏹</button>
+                    <button id="back-button" title="Back">⬅</button>
+                    <button id="forward-button" title="Forward">➡</button>
+                    <button id="home-button" title="Home">🏠</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Audio element for dryer sound -->
+    <audio id="dryer-sound" loop>
+        <source src="assets/dryer-sound.mp3" type="audio/mpeg">
+        <source src="assets/dryer-sound.wav" type="audio/wav">
+    </audio>
+
+    <script src="renderer.js"></script>
+</body>
+</html>

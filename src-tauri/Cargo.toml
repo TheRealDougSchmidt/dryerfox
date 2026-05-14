@@ -1,0 +1,20 @@
+[package]
+name = "dryerfox"
+version = "1.0.0"
+description = "A silly browser that acts like a clothes dryer"
+authors = ["Doug Schmidt"]
+edition = "2021"
+
+[lib]
+name = "dryerfox_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = ["macos-private-api"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "http2", "charset", "gzip", "brotli", "deflate"] }
+http = "1"
