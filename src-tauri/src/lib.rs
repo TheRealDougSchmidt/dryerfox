@@ -40,6 +40,8 @@ fn unrewrite_url(value: &str) -> String {
 // - X-Frame-Options / CSP — the whole point of the proxy
 // - HSTS — irrelevant for a custom scheme and confusing for the webview
 // - content-encoding/length/transfer-encoding — reqwest already decoded the body and we may rewrite it
+// - access-control-* — upstream values name the upstream origin (https://…); we re-add permissive
+//   values below so the webview accepts cross-host subresource loads inside the proxy world
 const RESPONSE_HEADER_BLOCKLIST: &[&str] = &[
     "x-frame-options",
     "content-security-policy",
@@ -48,6 +50,11 @@ const RESPONSE_HEADER_BLOCKLIST: &[&str] = &[
     "content-encoding",
     "content-length",
     "transfer-encoding",
+    "access-control-allow-origin",
+    "access-control-allow-credentials",
+    "access-control-allow-methods",
+    "access-control-allow-headers",
+    "access-control-expose-headers",
 ];
 
 async fn proxy_request(
@@ -86,6 +93,15 @@ async fn proxy_request(
         Ok(m) => m,
         Err(_) => return error_html(400, "Invalid HTTP method"),
     };
+
+    // Capture the request origin (e.g. `dryerfox://twitter.com`) so we can echo it
+    // back as `Access-Control-Allow-Origin`. Wildcard `*` doesn't work with credentialed
+    // XHRs; an exact-origin echo paired with `Access-Control-Allow-Credentials: true` does.
+    let request_origin = request
+        .headers()
+        .get("origin")
+        .and_then(|v| v.to_str().ok())
+        .map(|s| s.to_string());
 
     let mut req_builder = client.request(method, &target_url);
 
@@ -168,7 +184,19 @@ async fn proxy_request(
     };
 
     let mut response_builder = http::Response::builder()
-        .status(http::StatusCode::from_u16(status).unwrap_or(http::StatusCode::OK));
+        .status(http::StatusCode::from_u16(status).unwrap_or(http::StatusCode::OK))
+        // WKWebView treats every dryerfox://<host> as its own origin, so cross-host
+        // subresources (twitter.com → abs.twimg.com, etc.) get CORS-checked. Echo the
+        // request origin (which is needed for credentialed XHRs) and fall back to `*`
+        // only when the request didn't have an Origin header (no credentials in play).
+        .header(
+            "access-control-allow-origin",
+            request_origin.as_deref().unwrap_or("*"),
+        )
+        .header("access-control-allow-credentials", "true")
+        .header("access-control-allow-methods", "*")
+        .header("access-control-allow-headers", "*")
+        .header("access-control-expose-headers", "*");
 
     for (name, value) in resp_headers.iter() {
         let lname = name.as_str().to_ascii_lowercase();
@@ -192,7 +220,20 @@ fn inject_base_tag(html: &str, final_url: &reqwest::Url) -> String {
         .unwrap_or_default();
     let host = final_url.host_str().unwrap_or("");
     let base_href = format!("dryerfox://{}{}/", host, port);
-    let base_tag = format!(r#"<base href="{}">"#, base_href);
+
+    // Inject:
+    //   1. <base> so relative URLs resolve against the post-redirect host.
+    //   2. A tiny script that posts the *final* URL (after any reqwest-followed
+    //      redirects) back to the parent. We hardcode the URL rather than read
+    //      location.href because the iframe's location is whatever it was
+    //      navigated to, not the post-redirect target.
+    let final_dryerfox = rewrite_html(final_url.as_str());
+    let js_url = final_dryerfox.replace('\\', "\\\\").replace('"', "\\\"");
+    let injection = format!(
+        r#"<base href="{base_href}"><script>(function(){{var u="{js_url}";try{{window.parent.postMessage("DRYERFOX_URL:"+u,"*");}}catch(e){{}}}})();</script>"#,
+        base_href = base_href,
+        js_url = js_url
+    );
 
     // Insert right after <head> (case-insensitive). If there's no <head>, prepend.
     let lower = html.to_ascii_lowercase();
@@ -201,7 +242,7 @@ fn inject_base_tag(html: &str, final_url: &reqwest::Url) -> String {
         format!(
             "{}{}{}",
             &html[..insertion_point],
-            base_tag,
+            injection,
             &html[insertion_point..]
         )
     } else if let Some(idx) = lower.find("<head") {
@@ -210,14 +251,14 @@ fn inject_base_tag(html: &str, final_url: &reqwest::Url) -> String {
             format!(
                 "{}{}{}",
                 &html[..insertion_point],
-                base_tag,
+                injection,
                 &html[insertion_point..]
             )
         } else {
-            format!("{}{}", base_tag, html)
+            format!("{}{}", injection, html)
         }
     } else {
-        format!("{}{}", base_tag, html)
+        format!("{}{}", injection, html)
     }
 }
 

@@ -67,6 +67,15 @@ class DryerFox {
             this.handleLoadError();
         });
 
+        // The proxied page posts its post-redirect URL back so we can update the
+        // URL bar after redirects or in-iframe navigation.
+        window.addEventListener('message', (event) => {
+            if (typeof event.data !== 'string' || !event.data.startsWith('DRYERFOX_URL:')) return;
+            const url = event.data.slice('DRYERFOX_URL:'.length);
+            if (!url.startsWith('dryerfox://')) return;
+            this.urlInput.value = url.replace(/^dryerfox:\/\//, 'https://');
+        });
+
         this.setupRotatedIframeInteraction();
     }
 
