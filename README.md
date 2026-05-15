@@ -1,6 +1,6 @@
-# DryerFox 3
+# DryerFox
 
-A silly desktop browser that acts like a web browser inside a clothes dryer. This is a [Tauri](https://tauri.app/) port of the Electron-based `dryerfox2`, which itself was a recreation of the original Adobe AIR `dryerfox`.
+A silly desktop browser that acts like a web browser inside a clothes dryer. This is a [Tauri](https://tauri.app/) port of the original Adobe AIR [`dryerfox` app](https://github.com/TheRealDougSchmidt/dryerfox-air).
 
 The name is a pun on Firefox and a clothes dryer. The app is a chromeless transparent window with a stack of PNG overlays that look like a clothes dryer. The webpage is displayed as if it were inside the dryer drum. While a page is loading, the drum slowly rotates and plays a tumble sound. When the page finishes loading, the rotation stops at a random angle, and the page remains interactive on that weird angle.
 
