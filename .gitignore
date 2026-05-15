@@ -8,3 +8,14 @@ src-tauri/gen/
 
 # macOS
 .DS_Store
+
+# Mobile icons (desktop-only project)
+src-tauri/icons/android/
+src-tauri/icons/ios/
+
+# Windows Store (appx) icons — not used by MSI/NSIS builds
+src-tauri/icons/Square*Logo.png
+src-tauri/icons/StoreLogo.png
+
+# Claude Code local state
+.claude/
