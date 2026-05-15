@@ -36,7 +36,7 @@
 
         <!-- Dryer lid with controls -->
         <div id="dryer-lid" data-tauri-drag-region>
-            <img src="assets/dryer_lid_med.png" alt="Dryer Lid" class="dryer-asset">
+            <canvas id="lid-canvas" class="dryer-asset"></canvas>
 
             <!-- Control buttons overlay -->
             <div id="controls">
@@ -49,6 +49,9 @@
                 </div>
             </div>
         </div>
+
+        <!-- Invisible resize grab handle, positioned over the bottom-right of the frame -->
+        <div id="resize-handle"></div>
     </div>
 
     <!-- Audio element for dryer sound -->
