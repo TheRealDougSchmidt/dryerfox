@@ -22,7 +22,8 @@
         "transparent": true,
         "decorations": false,
         "alwaysOnTop": false,
-        "shadow": false
+        "shadow": false,
+        "useHttpsScheme": false
       }
     ],
     "security": {

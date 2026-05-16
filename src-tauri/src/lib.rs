@@ -1,4 +1,7 @@
 use std::borrow::Cow;
+use std::sync::OnceLock;
+
+use regex::Regex;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -16,6 +19,15 @@ pub fn run() {
         .expect("error while running tauri application");
 }
 
+// On Windows (WebView2), Tauri exposes custom URI scheme handlers via
+// `http://<scheme>.localhost/...` rather than the actual `<scheme>://` URL —
+// custom schemes aren't natively routable by WebView2 the way they are by
+// WKWebView. So on Windows the iframe navigates to
+//   http://dryerfox.localhost/<upstream-host>/<upstream-path>
+// and we peel the upstream host off the first path segment.
+#[cfg(windows)]
+const PROXY_HOST: &str = "dryerfox.localhost";
+
 // Headers we never forward to the upstream server.
 // `host` is set by reqwest from the target URL.
 // `connection` is hop-by-hop and shouldn't be forwarded.
@@ -30,9 +42,24 @@ const REQUEST_HEADER_BLOCKLIST: &[&str] = &[
     "connection",
 ];
 
-// Rewrite the `dryerfox://` scheme back to `https://` in header values so upstreams
+// Rewrite the proxy-scheme URL in header values back to `https://` so upstreams
 // see a plausible-looking origin/referer.
+//
+// On macOS the scheme is literally `dryerfox://<host>`; on Windows it's
+// `http://dryerfox.localhost/<host>`. Either way we want to recover
+// `https://<host>` for forwarding upstream.
 fn unrewrite_url(value: &str) -> String {
+    #[cfg(windows)]
+    {
+        let needle = "http://dryerfox.localhost/";
+        if let Some(pos) = value.find(needle) {
+            let mut out = String::with_capacity(value.len());
+            out.push_str(&value[..pos]);
+            out.push_str("https://");
+            out.push_str(&value[pos + needle.len()..]);
+            return out;
+        }
+    }
     value.replace("dryerfox://", "https://")
 }
 
@@ -61,18 +88,10 @@ async fn proxy_request(
     request: http::Request<Vec<u8>>,
 ) -> http::Response<Cow<'static, [u8]>> {
     let uri = request.uri().clone();
-    let host = match uri.host() {
-        Some(h) if !h.is_empty() => h.to_string(),
-        _ => return error_html(400, "dryerfox:// URL is missing a host"),
+    let (host, port, path_and_query) = match parse_proxy_uri(&uri) {
+        Some(parts) => parts,
+        None => return error_html(400, "dryerfox URL is missing a host"),
     };
-    let port = uri
-        .port_u16()
-        .map(|p| format!(":{}", p))
-        .unwrap_or_default();
-    let path_and_query = uri
-        .path_and_query()
-        .map(|p| p.as_str().to_string())
-        .unwrap_or_else(|| "/".to_string());
 
     // We default to https for the upstream; modern web is https-first and a
     // server that only speaks plain http will surface as an error page.
@@ -167,7 +186,8 @@ async fn proxy_request(
     let final_body = if is_text_response(&content_type) {
         match String::from_utf8(body_bytes) {
             Ok(s) => {
-                let rewritten = rewrite_html(&s);
+                let final_host = final_url.host_str().unwrap_or(&host);
+                let rewritten = rewrite_html(&s, final_host);
                 // For HTML, the iframe's URL is whatever the user asked for, but
                 // reqwest may have followed redirects to a different host. Inject
                 // a <base> so relative URLs resolve against the post-redirect host.
@@ -219,16 +239,26 @@ fn inject_base_tag(html: &str, final_url: &reqwest::Url) -> String {
         .map(|p| format!(":{}", p))
         .unwrap_or_default();
     let host = final_url.host_str().unwrap_or("");
+
+    // The base href has to match the platform's proxy URL form. On macOS the
+    // iframe lives at `dryerfox://<host>/`; on Windows it lives at
+    // `http://dryerfox.localhost/<host>/`. Relative URLs in the page resolve
+    // against this base, so getting it wrong breaks every relative resource.
+    #[cfg(windows)]
+    let base_href = format!("http://{}/{}{}/", PROXY_HOST, host, port);
+    #[cfg(not(windows))]
     let base_href = format!("dryerfox://{}{}/", host, port);
 
     // Inject:
     //   1. <base> so relative URLs resolve against the post-redirect host.
     //   2. A tiny script that posts the *final* URL (after any reqwest-followed
-    //      redirects) back to the parent. We hardcode the URL rather than read
-    //      location.href because the iframe's location is whatever it was
-    //      navigated to, not the post-redirect target.
-    let final_dryerfox = rewrite_html(final_url.as_str());
-    let js_url = final_dryerfox.replace('\\', "\\\\").replace('"', "\\\"");
+    //      redirects) back to the parent. We send the canonical https:// URL
+    //      rather than the proxy form so the renderer doesn't need to
+    //      reverse-map per platform.
+    let js_url = final_url
+        .as_str()
+        .replace('\\', "\\\\")
+        .replace('"', "\\\"");
     let injection = format!(
         r#"<base href="{base_href}"><script>(function(){{var u="{js_url}";try{{window.parent.postMessage("DRYERFOX_URL:"+u,"*");}}catch(e){{}}}})();</script>"#,
         base_href = base_href,
@@ -270,13 +300,107 @@ fn is_text_response(content_type: &str) -> bool {
         || content_type.contains("svg")
 }
 
-fn rewrite_html(html: &str) -> String {
-    // Crude but effective for a silly play app: replace every absolute
-    // http(s):// URL anywhere in the HTML with dryerfox://. The browser
-    // resolves relative URLs against the current page's URL (which is
-    // already dryerfox://), so they take care of themselves.
-    html.replace("https://", "dryerfox://")
-        .replace("http://", "dryerfox://")
+// Parse the incoming proxy request URI into (upstream_host, port, path_and_query).
+// On macOS the URI is `dryerfox://<host>[:port]/<path>` and we can use the URI
+// host/path directly. On Windows the URI is `http://dryerfox.localhost/<host>/<path>`
+// (Tauri's WebView2 workaround), so the upstream host is the first path segment.
+fn parse_proxy_uri(uri: &http::Uri) -> Option<(String, String, String)> {
+    #[cfg(windows)]
+    {
+        let path = uri.path();
+        let trimmed = path.trim_start_matches('/');
+        if trimmed.is_empty() {
+            return None;
+        }
+        let (host, rest) = match trimmed.find('/') {
+            Some(idx) => (&trimmed[..idx], &trimmed[idx..]),
+            None => (trimmed, "/"),
+        };
+        if host.is_empty() {
+            return None;
+        }
+        let query = uri.query().map(|q| format!("?{}", q)).unwrap_or_default();
+        // We always speak to upstreams on the default https port; if the user
+        // wants a non-default port they can encode it in the host segment
+        // itself (e.g. `localhost:8080`) since `:` is valid in a URL path.
+        Some((host.to_string(), String::new(), format!("{}{}", rest, query)))
+    }
+    #[cfg(not(windows))]
+    {
+        let host = uri.host().filter(|h| !h.is_empty())?.to_string();
+        let port = uri
+            .port_u16()
+            .map(|p| format!(":{}", p))
+            .unwrap_or_default();
+        let path_and_query = uri
+            .path_and_query()
+            .map(|p| p.as_str().to_string())
+            .unwrap_or_else(|| "/".to_string());
+        Some((host, port, path_and_query))
+    }
+}
+
+// Crude but effective for a silly play app: rewrite every absolute
+// http(s):// URL we find in textual responses to its proxied equivalent so
+// dynamically-constructed sub-requests also route through us. On Windows we
+// additionally rewrite protocol-relative (`//cdn.example.com/…`) and
+// root-relative (`/foo`) URLs in common attributes — those are naturally
+// host-scoped on macOS where every upstream gets its own custom-scheme
+// "origin", but on Windows every request shares `dryerfox.localhost` so we
+// have to splice the host back into the path ourselves.
+#[allow(unused_variables)]
+fn rewrite_html(html: &str, upstream_host: &str) -> String {
+    static ABS_URL: OnceLock<Regex> = OnceLock::new();
+    let abs = ABS_URL.get_or_init(|| Regex::new(r"https?://").unwrap());
+
+    #[cfg(windows)]
+    {
+        let replacement = format!("http://{}/", PROXY_HOST);
+        let s = abs.replace_all(html, replacement.as_str()).into_owned();
+        rewrite_relative_urls_for_windows(&s, upstream_host)
+    }
+    #[cfg(not(windows))]
+    {
+        abs.replace_all(html, "dryerfox://").into_owned()
+    }
+}
+
+#[cfg(windows)]
+fn rewrite_relative_urls_for_windows(html: &str, upstream_host: &str) -> String {
+    static ROOT_REL_ATTR: OnceLock<Regex> = OnceLock::new();
+    static PROTO_REL: OnceLock<Regex> = OnceLock::new();
+
+    // Match `attr="/X...` or `attr='/X...` where X is any non-slash byte (so
+    // we don't mangle protocol-relative `//cdn.example.com/...`, which is
+    // handled in the next pass). The Rust regex engine doesn't support
+    // look-around, so we capture the byte after the slash and put it back in
+    // the replacement.
+    let root_rel = ROOT_REL_ATTR.get_or_init(|| {
+        Regex::new(
+            r#"(?i)\b(href|src|action|formaction|poster|cite|data|background|manifest|usemap|srcset)(\s*=\s*)(["'])/([^/])"#,
+        )
+        .unwrap()
+    });
+    let with_root = root_rel
+        .replace_all(
+            html,
+            format!("$1$2$3/{}/$4", upstream_host).as_str(),
+        )
+        .into_owned();
+
+    // Protocol-relative: `//example.com/foo` → `http://dryerfox.localhost/example.com/foo`.
+    // We look for `//` preceded by a quote, paren, whitespace, `=`, or `,` so
+    // we don't mangle things like comment terminators (`*/`) or doubled
+    // slashes inside strings.
+    let proto_rel = PROTO_REL.get_or_init(|| {
+        Regex::new(r#"(?i)([=\s"'(,])//([a-z0-9][a-z0-9.\-]*\.[a-z]{2,})"#).unwrap()
+    });
+    proto_rel
+        .replace_all(
+            &with_root,
+            format!("$1http://{}/$2", PROXY_HOST).as_str(),
+        )
+        .into_owned()
 }
 
 fn error_html(status: u16, msg: &str) -> http::Response<Cow<'static, [u8]>> {

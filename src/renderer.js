@@ -1,5 +1,18 @@
 // DryerFox renderer (Tauri version)
 
+// WKWebView (macOS) routes the actual `dryerfox://` custom scheme to our Rust
+// handler, so on macOS we use that directly. WebView2 (Windows) has no native
+// custom-scheme routing for arbitrary schemes — Tauri exposes the protocol via
+// `http://<scheme>.localhost/...` instead. We encode the upstream host as the
+// first path segment so the Rust side can recover it.
+const IS_WINDOWS = typeof navigator !== 'undefined' && /windows/i.test(navigator.userAgent);
+function toProxyUrl(httpsUrl) {
+    if (IS_WINDOWS) {
+        return httpsUrl.replace(/^https?:\/\//i, 'http://dryerfox.localhost/');
+    }
+    return httpsUrl.replace(/^https?:\/\//i, 'dryerfox://');
+}
+
 // Native (at min-size) layout constants. The minimum window is 800x850.
 // Everything below describes the dryer at its original 1:1 scale.
 const LEFT_MARGIN = 50;       // transparent gap to the left of the lid/frame
@@ -137,12 +150,13 @@ class DryerFox {
         });
 
         // The proxied page posts its post-redirect URL back so we can update the
-        // URL bar after redirects or in-iframe navigation.
+        // URL bar after redirects or in-iframe navigation. The proxy sends the
+        // canonical https:// URL so we don't need to reverse-map per platform.
         window.addEventListener('message', (event) => {
             if (typeof event.data !== 'string' || !event.data.startsWith('DRYERFOX_URL:')) return;
             const url = event.data.slice('DRYERFOX_URL:'.length);
-            if (!url.startsWith('dryerfox://')) return;
-            this.urlInput.value = url.replace(/^dryerfox:\/\//, 'https://');
+            if (!/^https?:\/\//i.test(url)) return;
+            this.urlInput.value = url;
         });
 
         this.setupRotatedIframeInteraction();
@@ -186,9 +200,9 @@ class DryerFox {
         this.urlInput.value = url;
         this.startLoading();
 
-        // Route through the dryerfox:// scheme so the Rust handler can strip
-        // X-Frame-Options / CSP before the webview tries to render the page.
-        const proxyUrl = url.replace(/^https?:\/\//, 'dryerfox://');
+        // Route through the proxy so the Rust handler can strip X-Frame-Options /
+        // CSP before the webview tries to render the page.
+        const proxyUrl = toProxyUrl(url);
 
         try {
             this.webFrame.src = proxyUrl;
