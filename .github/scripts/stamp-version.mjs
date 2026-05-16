@@ -38,7 +38,7 @@ patchText(
 );
 patchText(
   'src-tauri/Cargo.lock',
-  /(name = "dryerfox"\nversion = ")[^"]+(")/,
+  /(name = "dryerfox"\r?\nversion = ")[^"]+(")/,
   `$1${version}$2`,
 );
 
